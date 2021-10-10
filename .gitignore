@@ -2,3 +2,4 @@
 ./.stack-work
 .stack-work/stack.sqlite3
 tokens
+dist-newstyle/

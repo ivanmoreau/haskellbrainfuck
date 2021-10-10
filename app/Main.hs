@@ -1,10 +1,9 @@
 module Main (main) where
 
 import Data.Maybe (isJust, fromJust)
-import Data.List (elemIndex)
-import Control.Exception.Base (tryJust)
+import GHC.IO.Handle ( BufferMode(NoBuffering), hSetBuffering )
+import System.IO (stdin)
 type Tape = ([Int], Int)
--- type Instructions = Token
 
 (>!) :: [a] -> Int -> Maybe a
 xs >! i
@@ -24,37 +23,36 @@ data Token =
 
 type Instructions = ([Token], Int)
 
-moveRight :: Instructions -> Tape -> Int -> String
+moveRight :: Instructions -> Tape -> Int -> IO String
 moveRight x y 0 = runner x y
 moveRight x (ys, pos) t
-    | newIndex > 6 = error ("Max index should be 6 for Hello World, but we have: " ++ show newIndex)
     | isJust (ys >! newIndex) = runner x (ys, newIndex)
     | otherwise = runner x (ys ++ replicate (newIndex - lastIndex) 0, newIndex)
         where   newIndex = pos + t
                 lastIndex = length ys - 1
 
-moveLeft :: Instructions -> Tape -> Int -> String
+moveLeft :: Instructions -> Tape -> Int -> IO String
 moveLeft x y 0 = runner x y
 moveLeft x (ys, pos) t
     | isJust (ys >! newIndex) = runner x (ys, newIndex)
     | otherwise = error "index < -1"
         where   newIndex = pos - t
 
-plus :: Instructions -> Tape -> Int -> String
+plus :: Instructions -> Tape -> Int -> IO String
 plus x y 0 = runner x y
 plus x (ys, pos) t
     | isJust result = runner x (take pos ys ++ (fromJust result + t) : drop (pos + 1) ys, pos)
     | otherwise = error "Evil index."
     where result = ys >! pos
 
-minus :: Instructions -> Tape -> Int -> String
+minus :: Instructions -> Tape -> Int -> IO String
 minus x y 0 = runner x y
 minus x (ys, pos) t
     | isJust result = runner x (take pos ys ++ (fromJust result - t) : drop (pos + 1) ys, pos)
     | otherwise = error "Evil index."
     where result = ys >! pos
 
-loopInit :: Instructions -> Tape -> Int -> String
+loopInit :: Instructions -> Tape -> Int -> IO String
 loopInit (xs, x) (ys, pos) t
     | isJust result = case fromJust result of
         0 -> runner (xs, t) (ys, pos)
@@ -62,7 +60,7 @@ loopInit (xs, x) (ys, pos) t
     | otherwise = error "Evil index."
     where result = ys >! pos
 
-loopEnd :: Instructions -> Tape -> Int -> String
+loopEnd :: Instructions -> Tape -> Int -> IO String
 loopEnd (xs, x) (ys, pos) t
     | isJust result = case fromJust result of
         0 -> runner (xs, x) (ys, pos)
@@ -70,9 +68,23 @@ loopEnd (xs, x) (ys, pos) t
     | otherwise = error "Evil index."
     where result = ys >! pos
 
-printC :: Instructions -> Tape -> Int -> String
-printC f (xs, pos) c =  outchars ++ runner f (xs, pos)
-    where outchars = replicate c (toEnum (xs !! pos) :: Char )
+printC :: Instructions -> Tape -> Int -> IO String
+printC f t 0 = runner f t
+printC f (xs, pos) c = do
+        putChar (toEnum (xs !! pos) :: Char )
+        printC f (xs, pos) (c - 1)
+
+readC :: Instructions -> Tape -> Int -> IO String
+readC x y 0 = runner x y
+readC x (ys, pos) c = do
+    hSetBuffering stdin NoBuffering
+    input <- getChar
+    let char = fromEnum ( input) in
+        if isJust result then
+            readC x (take pos ys
+            ++ (fromJust result + char) : drop (pos + 1) ys, pos) (c - 1)
+        else error "Evil index."
+    where result = ys >! pos
 
 isChar :: Char -> (Char -> Bool)
 isChar x = f where
@@ -111,21 +123,24 @@ tokenizer (']':xs) t q =
 tokenizer "" _ _ = ([], [])
 tokenizer (_:xs) t q = tokenizer xs t q
 
-runner :: Instructions -> Tape -> String
+runner :: Instructions -> Tape -> IO String
 runner (xs, pos) y = if (pos + 1) > length xs
-    then "" else (case (xs !! pos) of
+    then return "" else (case (xs !! pos) of
         TLeft n -> moveLeft (xs, pos + 1) y n
         TRight n -> moveRight (xs, pos + 1) y n
         TPlus n -> plus (xs, pos + 1) y n
         TMinus n -> minus (xs, pos + 1) y n
         TPrint n -> printC (xs, pos + 1) y n
-        TRead _ -> error "unimplemented"
+        TRead n -> readC (xs, pos + 1) y n
         TFirst t -> loopInit (xs, pos + 1) y t
         TLast t -> loopEnd (xs, pos + 1) y t)
 
-machine :: String -> String
+machine :: String -> IO String
 machine "" = error "Oh, fiddlesticks! What now?"
 machine x = runner (fst (tokenizer x 0 []), 0) ([0], 0)
 
 main :: IO ()
-main = putStrLn (machine "++++++++.[>++++[>++>+++>+++>+<<<<-]>+>+>->>+[<]<-]>>.>---.+++++++..+++.>>.<-.<.+++.------.--------.>>+.>++.")
+main = do
+    str <- getLine
+    val <- machine str
+    putStrLn val
